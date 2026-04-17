@@ -19,6 +19,9 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 # Load environment variables for local development (will be ignored by Streamlit Cloud)
 load_dotenv()
 
+# Set up API keys using Streamlit's secrets management
+# For local development, these will be read from .streamlit/secrets.toml
+# On Streamlit Cloud, they will be read from the repository's secrets
 groq_api_key = st.secrets.get("GROQ_API_KEY")
 os.environ["SERPAPI_API_KEY"] = st.secrets.get("SERPAPI_API_KEY")
 os.environ["HF_TOKEN"] = st.secrets.get("HF_TOKEN")
@@ -83,7 +86,7 @@ if groq_api_key and os.environ.get("SERPAPI_API_KEY"):
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-
+    # Get user input
     if prompt_input := st.chat_input("Ask a question..."):
         if st.session_state.vector is None:
             st.warning("Please process a website URL first.")
@@ -92,6 +95,7 @@ if groq_api_key and os.environ.get("SERPAPI_API_KEY"):
                 st.markdown(prompt_input)
             st.session_state.chat_history.append({"role": "user", "content": prompt_input})
 
+            # --- Part 1: Get answer from the website context ---
             with st.spinner("Analyzing website content..."):
                 website_retriever = st.session_state.vector.as_retriever()
                 docs = website_retriever.invoke(prompt_input)
@@ -104,7 +108,12 @@ if groq_api_key and os.environ.get("SERPAPI_API_KEY"):
                     })
                 else:
                     website_answer = "No relevant information found in website."
-            
+                #website_retriever = st.session_state.vector.as_retriever()
+                #website_chain = create_retrieval_chain(website_retriever, create_stuff_documents_chain(llm, prompt_template))
+                #response_website = website_chain.invoke({"input": prompt_input})
+                #website_answer = response_website['answer']
+
+            # --- Part 2: Get answer from Google Search ---
             with st.spinner("Searching Google and analyzing results..."):
                 search = SerpAPIWrapper()
                 search_results = search.results(prompt_input)
@@ -137,6 +146,15 @@ if groq_api_key and os.environ.get("SERPAPI_API_KEY"):
                 
                         if reference_links:
                             google_answer += "\n\n🔗 Sources:\n" + "\n".join(reference_links[:5])
+               # google_answer = "Could not find relevant information from Google search."
+               # if google_docs:
+               #     google_vector_store = FAISS.from_documents(google_docs, st.session_state.embeddings)
+               #     google_retriever = google_vector_store.as_retriever()
+               #     google_chain = create_retrieval_chain(google_retriever, create_stuff_documents_chain(llm, prompt_template))
+               #     response_google = google_chain.invoke({"input": prompt_input})
+               #     google_answer = response_google['answer']
+
+            # --- Part 3: Display combined results ---
             with st.chat_message("assistant"):
                 st.markdown("### From Website Content")
                 st.markdown(website_answer)
@@ -146,6 +164,8 @@ if groq_api_key and os.environ.get("SERPAPI_API_KEY"):
                 if reference_links:
                     st.markdown("#### References:")
                     st.markdown("\n".join(reference_links))
+            
+            # Save combined answer to history
             combined_answer = (
                 f"**From Website Content:**\n{website_answer}\n\n---\n\n"
                 f"**From Google Search:**\n{google_answer}"
@@ -155,4 +175,4 @@ if groq_api_key and os.environ.get("SERPAPI_API_KEY"):
             st.session_state.chat_history.append({"role": "assistant", "content": combined_answer})
 
 else:
-   st.error("API keys not found. Please set them in your Streamlit secrets.")
+    st.error("API keys not found. Please set them in your Streamlit secrets.")
